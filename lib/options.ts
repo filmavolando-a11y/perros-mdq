@@ -1,0 +1,8 @@
+export const RAZAS = ['Mestizo / no sé','Labrador','Golden Retriever','Pastor Alemán','Caniche','Bulldog','Beagle','Boxer','Dálmata','Rottweiler','Husky','Chihuahua','Yorkshire','Salchicha','Border Collie','Cimarrón','Pitbull','Otra']
+export const COLORES = ['Negro','Blanco','Marrón','Beige','Gris','Dorado','Colorado','Atigrado','Manchado']
+export const BARRIOS = ['Centro','Güemes','Los Troncos','Plaza Mitre','Punta Mogotes','Constitución','Playa Grande','La Perla','Parque Luro','Batán','Alfar','Santa Clara','Otro']
+export const TAMANOS = ['Chico','Mediano','Grande']
+export const SEXOS = ['Macho','Hembra','No sé']
+export const EDADES = ['Cachorro','Adulto','Mayor']
+export const PELOS = ['Corto','Largo','Rizado']
+export const SNN = ['Sí','No','No sé']
