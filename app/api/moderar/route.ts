@@ -5,9 +5,8 @@ export const runtime = 'nodejs'
 
 const NIVELES = ['UNKNOWN', 'VERY_UNLIKELY', 'UNLIKELY', 'POSSIBLE', 'LIKELY', 'VERY_LIKELY']
 const nivel = (s?: string) => Math.max(0, NIVELES.indexOf(s ?? 'UNKNOWN'))
-const PERRO = /dog|puppy|canidae|retriever|terrier|hound|shepherd|poodle|bulldog|chihuahua|husky|collie|beagle|boxer/i
+const PERRO = /\b(dog|puppy)\b|dog breed/i
 
-// Revisa las fotos con Google Cloud Vision. Si todo está limpio aprueba; si no, deja la publicación pendiente.
 export async function POST(req: Request) {
   const sb = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SECRET_KEY!)
   const token = req.headers.get('authorization')?.replace('Bearer ', '') ?? ''
@@ -16,12 +15,11 @@ export async function POST(req: Request) {
   if (!auth.user || !id) return NextResponse.json({ error: 'no autorizado' }, { status: 401 })
 
   const { data: p } = await sb.from('perros').select('id,user_id,estado,fotos,ia_revisada').eq('id', id).single()
-  // Solo el dueño, solo publicaciones pendientes y una sola revisión por publicación
   if (!p || p.user_id !== auth.user.id || p.estado !== 'pendiente' || p.ia_revisada) {
     return NextResponse.json({ estado: p?.estado ?? null })
   }
 
-  let estado = 'pendiente'
+  let estado: string = 'pendiente'
   let nota = ''
   try {
     const requests = await Promise.all(
@@ -39,20 +37,36 @@ export async function POST(req: Request) {
       body: JSON.stringify({ requests }),
     })
     const j = await r.json()
-    if (!r.ok || j.responses?.some((x: any) => x.error)) throw new Error('vision')
+    if (!r.ok || j.responses?.some((x: any) => x.error)) {
+      console.error('Vision:', JSON.stringify(j))
+      throw new Error('vision')
+    }
 
     const res = j.responses as any[]
-    const sensible = res.some((x) => {
-      const s = x.safeSearchAnnotation ?? {}
-      return nivel(s.adult) >= 3 || nivel(s.violence) >= 3 || nivel(s.racy) >= 4 || nivel(s.medical) >= 4
-    })
-    const hayPerro = res.some((x) => (x.labelAnnotations ?? []).some((l: any) => l.score >= 0.6 && PERRO.test(l.description)))
+    const seguridad = res.map((x) => x.safeSearchAnnotation ?? {})
 
-    if (sensible) nota = 'Posible contenido sensible (adulto, violencia o heridas). Revisar.'
-    else if (!hayPerro) nota = 'Ninguna foto parece mostrar un perro. Revisar.'
+    // Contenido sensible: se borra y no llega al administrador
+    const rechazar = seguridad.some((s) => nivel(s.adult) >= 3 || nivel(s.racy) >= 4 || nivel(s.violence) >= 4)
+    // Dudoso (posibles heridas, un perro rescatado herido es legítimo): lo ve el administrador
+    const revisar = seguridad.some((s) => nivel(s.violence) >= 3 || nivel(s.medical) >= 4)
+    // Todas las fotos tienen que mostrar un perro
+    const todasPerro = res.every((x) =>
+      (x.labelAnnotations ?? []).some((l: any) => l.score >= 0.6 && PERRO.test(l.description))
+    )
+
+    if (rechazar) estado = 'rechazado'
+    else if (revisar) nota = 'Posibles heridas o violencia. Revisar.'
+    else if (!todasPerro) nota = 'Alguna foto no parece mostrar un perro. Revisar.'
     else estado = 'activo'
   } catch {
     nota = 'No se pudo revisar con la IA. Revisar a mano.'
+  }
+
+  if (estado === 'rechazado') {
+    const paths = p.fotos.map((s: string) => decodeURIComponent(s.split('/fotos/')[1] ?? '')).filter(Boolean)
+    if (paths.length) await sb.storage.from('fotos').remove(paths)
+    await sb.from('perros').delete().eq('id', id)
+    return NextResponse.json({ estado })
   }
 
   await sb.from('perros').update({ estado, ia_revisada: true, ia_nota: nota || null }).eq('id', id)
