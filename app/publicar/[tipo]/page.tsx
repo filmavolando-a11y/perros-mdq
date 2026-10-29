@@ -42,6 +42,14 @@ export default function Publicar() {
       const { data, error } = await supabase.from('perros').insert({ ...rest, tipo, colores: cols, fotos: urls }).select('id').single()
       if (error) throw error
       await supabase.from('contactos').insert({ perro_id: data.id, whatsapp })
+      try {
+        const { data: s } = await supabase.auth.getSession()
+        await fetch('/api/moderar', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token}` },
+          body: JSON.stringify({ id: data.id }),
+        })  
+      } catch {}
       router.push(`/perro/${data.id}`)
     } catch {
       setErr('No pudimos publicar. Revisá los datos e intentá de nuevo.')
