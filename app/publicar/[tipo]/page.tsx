@@ -42,7 +42,7 @@ export default function Publicar() {
       const { data, error } = await supabase.from('perros').insert({ ...rest, tipo, colores: cols, fotos: urls }).select('id').single()
       if (error) throw error
       await supabase.from('contactos').insert({ perro_id: data.id, whatsapp })
-      let rechazada = false
+      let rechazo: any = null
       try {
         const { data: s } = await supabase.auth.getSession()
         const r = await fetch('/api/moderar', {
@@ -50,10 +50,16 @@ export default function Publicar() {
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${s.session?.access_token}` },
           body: JSON.stringify({ id: data.id }),
         })
-        rechazada = (await r.json()).estado === 'rechazado'
+        const j = await r.json()
+        if (j.estado === 'rechazado') rechazo = j
       } catch {}
-      if (rechazada) {
-        setErr('No pudimos aceptar las fotos porque parecen contener contenido inapropiado. Si creés que es un error, escribinos.')
+      if (rechazo) {
+        const f: number[] = rechazo.fallidas ?? []
+        setErr(
+          rechazo.motivo === 'no_perro'
+            ? `${f.length > 1 ? `Las fotos ${f.join(', ')} no parecen` : `La foto ${f[0]} no parece`} mostrar un perro. Todas las fotos tienen que ser del perro. Cambiá las que fallaron y volvé a intentar.`
+            : 'No pudimos aceptar las fotos porque parecen contener contenido inapropiado.'
+        )
         setBusy(false)
         return
       }

@@ -21,6 +21,8 @@ export async function POST(req: Request) {
 
   let estado: string = 'pendiente'
   let nota = ''
+  let motivo = ''
+  let fallidas: number[] = []
   try {
     const requests = await Promise.all(
       p.fotos.map(async (url: string) => {
@@ -44,19 +46,17 @@ export async function POST(req: Request) {
 
     const res = j.responses as any[]
     const seguridad = res.map((x) => x.safeSearchAnnotation ?? {})
-
-    // Contenido sensible: se borra y no llega al administrador
-    const rechazar = seguridad.some((s) => nivel(s.adult) >= 3 || nivel(s.racy) >= 4 || nivel(s.violence) >= 4)
-    // Dudoso (posibles heridas, un perro rescatado herido es legítimo): lo ve el administrador
-    const revisar = seguridad.some((s) => nivel(s.violence) >= 3 || nivel(s.medical) >= 4)
-    // Todas las fotos tienen que mostrar un perro
-    const todasPerro = res.every((x) =>
+    const esPerro = res.map((x) =>
       (x.labelAnnotations ?? []).some((l: any) => l.score >= 0.6 && PERRO.test(l.description))
     )
+    fallidas = esPerro.map((ok, i) => (ok ? 0 : i + 1)).filter(Boolean)
 
-    if (rechazar) estado = 'rechazado'
+    const sensible = seguridad.some((s) => nivel(s.adult) >= 3 || nivel(s.racy) >= 4 || nivel(s.violence) >= 4)
+    const revisar = seguridad.some((s) => nivel(s.violence) >= 3 || nivel(s.medical) >= 4)
+
+    if (sensible) { estado = 'rechazado'; motivo = 'sensible' }
+    else if (fallidas.length) { estado = 'rechazado'; motivo = 'no_perro' }
     else if (revisar) nota = 'Posibles heridas o violencia. Revisar.'
-    else if (!todasPerro) nota = 'Alguna foto no parece mostrar un perro. Revisar.'
     else estado = 'activo'
   } catch {
     nota = 'No se pudo revisar con la IA. Revisar a mano.'
@@ -66,7 +66,7 @@ export async function POST(req: Request) {
     const paths = p.fotos.map((s: string) => decodeURIComponent(s.split('/fotos/')[1] ?? '')).filter(Boolean)
     if (paths.length) await sb.storage.from('fotos').remove(paths)
     await sb.from('perros').delete().eq('id', id)
-    return NextResponse.json({ estado })
+    return NextResponse.json({ estado, motivo, fallidas })
   }
 
   await sb.from('perros').update({ estado, ia_revisada: true, ia_nota: nota || null }).eq('id', id)
