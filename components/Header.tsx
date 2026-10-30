@@ -6,7 +6,7 @@ export default function Header() {
   const u = useUser()
   return (
     <header>
-      <Link href="/" className="logo">Perros de Mar del Plata</Link>
+      <Link href="/" className="logo">Mardel Perdidos</Link>
       <nav>
         {u ? (
           <>
